@@ -1,0 +1,1 @@
+ALTER TABLE products ADD products_EHF varchar(100) NOT NULL default 'none';
