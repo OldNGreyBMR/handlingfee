@@ -8,6 +8,9 @@
  * @version $Id: Scott C Wilson 2022 Oct 16 Modified in v1.5.8a $
  */ // BMH 2025-05-14 handling fee modified to run on PHP 8.1 and 8.2
  //                 ln36, 178, 361
+ // BMH 2025-06-11 correct calcs, checked spaces in input params, no errors PHP 8.1 to 8.3 ZenCart 1.5.8a
+ //         tax calc comes from tax on shipping method; handling fee is ADDITIONAL to aupost handling fee
+ // Version 158a
 if (!defined('IS_ADMIN_FLAG')) {
     die('Illegal Access');
 }
@@ -18,11 +21,12 @@ if (!defined('IS_ADMIN_FLAG')) {
  */
 class shipping extends base
 {
-    /**
+    /** 
      * $enabled allows notifier to turn off shipping method
      * @var boolean
      */
     public $enabled;
+    
     /**
      * $modules is an array of installed shipping module names can be altered by notifier
      * @var array
@@ -167,7 +171,7 @@ class shipping extends base
 
     public function quote($method = '', $module = '', $calc_boxes_weight_tare = true, $insurance_exclusions = [])
     {
-        global $shipping_weight, $uninsurable_value;
+        global $shipping_weight, $uninsurable_value; 
         $quotes_array = [];
 
         if ($calc_boxes_weight_tare) {
@@ -210,17 +214,21 @@ class shipping extends base
                 }
             }
         }
-
+// ********************************************************************************
         // bof - handling fee module edit [1 of 3]
+    global $output ; 
+    $handling_fee = '';       // BMH
+    $key = '';                // BMH 
+    $group_discountfee = 0;   // BMH
+        //include("includes\modules\order_total\ot_handlingfee.php");  // BMH 
     if ($this->handling_fee_test()) {
         $this->handling_fee = $this->handling_fee();
-        $include_methods = explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_INCLUDE_SHIPPING);
-        $exclude_methods = explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_EXCLUDE_SHIPPING);
+        $include_methods = array_map('trim', explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_INCLUDE_SHIPPING));  // BMH trim
+        $exclude_methods = array_map ('trim', explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_EXCLUDE_SHIPPING));  // BMH  trim
         $shipping_methods_size = sizeof($quotes_array);
         for ($j=0; $j<$shipping_methods_size; $j++) {
           $size = sizeof($quotes_array[$j]['methods']);
           for ($i=0; $i<$size; $i++) {
-            // $enabled = $handling_fee; // default
             $enabled = false; // default
             if (isset($quotes_array[$j]['methods'][$i]['cost'])){
               if (MODULE_ORDER_TOTAL_HANDLINGFEE_INCLUDE_SHIPPING != '') {
@@ -237,19 +245,19 @@ class shipping extends base
                 }
               }
               if ($enabled) {
-                $quotes_array[$j]['methods'][$i]['cost'] += $this->handling_fee;
+                $quotes_array[$j]['methods'][$i]['cost'] += $this->handling_fee; // add handling fee to shipping method cost
               }
             }
           }        
         }
       }
       // eof - handling fee module edit [1 of 3]
-      
+      // **************** +++++++++++++++++++++++++
         $this->notify('NOTIFY_SHIPPING_MODULE_GET_ALL_QUOTES', $quotes_array, $quotes_array);
         return $quotes_array;
     }
 
-    public function cheapest()
+    function cheapest()
     {
         if (!is_array($this->modules)) {
             return false;
@@ -266,9 +274,11 @@ class shipping extends base
                 $size = count($quotes['methods']);
                 for ($i = 0; $i < $size; $i++) {
                     if (isset($quotes['methods'][$i]['cost'])) {
+
                             // bof - handling fee module edit [2 of 3]
-                            $quotes['methods'][$i]['cost'] += $this->handling_fee;
+                            $quotes['methods'][$i]['cost'] += $this->handling_fee; // BMH add handling fee to shipping method cost
                             // eof - handling fee module edit [2 of 3]
+
                             $rates[] = [
                             'id' => $quotes['id'] . '_' . $quotes['methods'][$i]['id'],
                             'title' => $quotes['module'] . ' (' . $quotes['methods'][$i]['title'] . ')',
@@ -305,24 +315,26 @@ class shipping extends base
         $this->notify('NOTIFY_SHIPPING_MODULE_CALCULATE_CHEAPEST', $cheapest, $cheapest, $rates);
         return $cheapest;
     }
-
+    // ***********************************************
     // bof - handling fee module edit [3 of 3]
     function handling_fee_test() {
+        global $order, $db, $currencies, $output, $title;
         $enabled = ((defined('MODULE_ORDER_TOTAL_HANDLINGFEE_STATUS') && MODULE_ORDER_TOTAL_HANDLINGFEE_STATUS == 'true') ? true : false);
         if ($enabled) {
-        $pass = false;
-        switch (MODULE_ORDER_TOTAL_HANDLINGFEE_DESTINATION) {
-        case 'provincial':
-            if ($_SESSION['customer_zone_id'] == STORE_ZONE) $pass = true; break;
-        case 'national':
-            if ($_SESSION['customer_country_id'] == STORE_COUNTRY) $pass = true; break;
-        case 'international':
-            if ($_SESSION['customer_country_id'] != STORE_COUNTRY) $pass = true; break;
-        case 'all':
-            $pass = true; break;
-        default:
-            $pass = false; break;
+            $pass = false;
+            switch (MODULE_ORDER_TOTAL_HANDLINGFEE_DESTINATION) {
+            case 'provincial':
+                if ($_SESSION['cart_zone_id'] == STORE_ZONE) $pass = true; break; // BMH
+            case 'national':
+                if ($_SESSION['cart_country_id'] == STORE_COUNTRY) $pass = true; break; // BMH 
+            case 'international':
+                if ($_SESSION['cart_country_id'] != STORE_COUNTRY) $pass = true; break; // BMH
+            case 'all':
+                $pass = true; break;
+            default:
+                $pass = false; break;
         }
+             
         $enabled = $pass; 
         }
         return $enabled;
@@ -330,37 +342,65 @@ class shipping extends base
     
     // function for checking handling fee of each product
     function handling_fee() {
-        global $db;
+        global $tax;
+        global $db, $output, $order, $currencies;
+        $tax = zen_get_tax_rate(MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS, $order->delivery['country']['id'], $order->delivery['zone_id']);
+        $tax_description = zen_get_tax_description(MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS, $order->delivery['country']['id'], $order->delivery['zone_id']);    
         $EHF_total = 0;
-        $products_cart = $_SESSION['cart']->get_products();        
-        foreach ($products_cart as $product) {     
-        $products_query = "SELECT products_id, products_EHF  
-                            FROM " . TABLE_PRODUCTS . " 
-                            WHERE products_id = '" . $product['id'] . "'
-                            ORDER BY products_id ASC";
-        $products = $db->Execute($products_query);
-        $EHF_total += $this->handling_fee_calculator($products->fields['products_EHF']) * $product['quantity'];                  
+        $products_cart = $_SESSION['cart']->get_products();         
+        for ($i=0, $n=sizeof($order->products); $i<$n; $i++) {	  
+            $products_query = "SELECT products_id, products_EHF  
+                                FROM " . TABLE_PRODUCTS . " 
+                                WHERE products_id = '" . $order->products[$i]['id'] . "' 
+                                ORDER BY products_id ASC"; 
+            $products = $db->Execute($products_query);
+            // BMH bof ****************
+            if (MODULE_ORDER_TOTAL_HANDLINGFEE_CALCULATION == 'sum') {
+                $products_EHF = $this->handling_fee_calculator($products->fields['products_EHF']) * $order->products[$i]['qty'];
+                $EHF_total += $products_EHF;
+
+                } else {
+                    // get max rate
+                    if ($this->handling_fee_calculator($products->fields['products_EHF']) > $EHF_total) {
+                        $EHF_total = $this->handling_fee_calculator($products->fields['products_EHF']);
+                    }
+                 }
+            if ($EHF_total > 0 && MODULE_ORDER_TOTAL_HANDLINGFEE_CALCULATION == 'sum') {
+                // calculate tax
+                    $order->total_tax += zen_calculate_tax($EHF_total, $tax);
+                    $order->total_cost += $products_EHF + zen_calculate_tax($products_EHF, $tax);
+                }
+        }  
+        if (MODULE_ORDER_TOTAL_HANDLINGFEE_CALCULATION == 'max') {
+                    // calculate tax          
+                    $order->total_tax += zen_calculate_tax($EHF_total, $tax);
+                    $order->total_cost += $EHF_total + zen_calculate_tax($EHF_total, $tax);
         }
+
+        // BMH eof *********************
+
         return $EHF_total;  
-    }
-    
+    } 
+ 
     function handling_fee_calculator($products_EHF) {
         if(!function_exists('array_combine')) {
-        function array_combine($a, $b) {
-            $c = array();
-            $at = array_values($a);
-            $bt = array_values($b);
-            foreach($at as $key=>$aval) $c[$aval] = $bt[$key];
-            return $c;
-        }
+            function array_combine($a, $b) {
+                $c = array();
+                $at = array_values($a);
+                $bt = array_values($b);
+                foreach($at as $key=>$aval) $c[$aval] = $bt[$key];
+                return $c;
+            }
         }
         $fees_descriptions = array_combine(explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_FEES), explode(",", MODULE_ORDER_TOTAL_HANDLINGFEE_DESCRIPTIONS));
         foreach ($fees_descriptions as $key => $value) {
-        if (trim(strtolower($products_EHF)) == trim(strtolower($value))) {
+            if (trim(strtolower($products_EHF)) == trim(strtolower($value))) {
             return $key;
-           // BMH unreachable code break;
+            }
         }
-        }
+
     }
+        
     // eof - handling fee module edit [3 of 3]
+    //********************** ++++++++++++++++++++++++
 }
