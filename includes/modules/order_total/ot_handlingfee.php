@@ -18,18 +18,20 @@
 // +----------------------------------------------------------------------+
 // $Id: ot_handlingfee.php 1011 2007-09-05 14:06:59Z numinix $
 // BMH changes for PHP 8.2 2025-05-14 ln40, 62, 63, 64, 68, 87, 108, 120
+// BMH 2025-06-11 no errors PHP 8.3 ZenCart 1.5.8a; tax class not referenced; change default method to aupost; change diusplay msg to calculate
+// Version 158a
 
 class ot_handlingfee {
-    public $code;                   // $code determines the internal 'code' name used to designate "this" payment module
-    public $description;            // $description is a soft name for this payment method  @var string
-    public $output =[];             // $output is an array of the display elements used on checkout pages
-    public $sort_order;             // $sort_order is the order priority of this payment module when displayed  @var int
-    public $title;                  // $title is the displayed name for this order total method  @var string
+    public $code;              // $code determines the internal 'code' name used to designate "this" payment module
+    public $description;       // $description is a soft name for this payment method  @var string
+    public $output =[];        // $output is an array of the display elements used on checkout pages
+    public $sort_order;        // $sort_order - order priority of this payment module when displayed  @var int
+    public $title;             // $title is the displayed name for this order total method  @var string
     public $shipping_method;
     public $include_methods;
     public $exclude_methods;
     
-    protected $_check;              // $_check is used to check the configuration key set up @var int
+    protected $_check;         // $_check is used to check the configuration key set up @var int
     protected $_enabled;
         
     function __construct() {
@@ -65,7 +67,7 @@ class ot_handlingfee {
     }
     
     function process() {
-        global $order, $currencies, $db, $handling_fee, $ot_handlingfee, $order_totals, $ot_total; // BMH
+        global $order, $currencies, $db; // $handling_fee, $ot_handlingfee, $order_totals, $ot_total; // BMH
       
         if ($this->_enabled) {
             if(!function_exists('handling_fee_calculator')) {
@@ -105,8 +107,6 @@ class ot_handlingfee {
             }
         
             if ($pass == true) { 
-                echo '<br> ln121 @pass==true'; // BMH 
-                print_r("<br> ln121 @pass==true");
                 $tax = zen_get_tax_rate(MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS, $order->delivery['country']['id'], $order->delivery['zone_id']);
                 $tax_description = zen_get_tax_description(MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS, $order->delivery['country']['id'], $order->delivery['zone_id']);    
                 $EHF_total = 0;
@@ -116,8 +116,8 @@ class ot_handlingfee {
                                 WHERE products_id = '" . $order->products[$i]['id'] . "'
                                 ORDER BY products_id ASC";
                     $products = $db->Execute($products_query);
+
                     if (MODULE_ORDER_TOTAL_HANDLINGFEE_CALCULATION == 'sum') {
-                        echo '<br> <br> ln131 CALCULATION=SUM'; // BMH
                         $products_EHF = handling_fee_calculator($products->fields['products_EHF']) * $order->products[$i]['qty'];
                         $EHF_total += $products_EHF;
                     } else {
@@ -168,15 +168,15 @@ class ot_handlingfee {
       
         (!$sniffer->field_exists(TABLE_PRODUCTS, 'products_EHF')) ? $db->Execute("ALTER TABLE products ADD products_EHF varchar(100) NOT NULL default 'none';") : false;
         
-        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, set_function, date_added) values ('Display Handling Fee', 'MODULE_ORDER_TOTAL_HANDLINGFEE_STATUS', 'true', 'Do you want to display the handling fee?', '6', '1','zen_cfg_select_option(array(\'true\', \'false\'), ', now())");
+        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, set_function, date_added) values ('Display / Calc Handling Fee', 'MODULE_ORDER_TOTAL_HANDLINGFEE_STATUS', 'true', 'Do you want to calculate the handling fee?', '6', '1','zen_cfg_select_option(array(\'true\', \'false\'), ', now())");
         $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Sort Order', 'MODULE_ORDER_TOTAL_HANDLINGFEE_SORT_ORDER', '250', 'Sort order of display.', '6', '2', now())");
-        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Handling Fee Groups', 'MODULE_ORDER_TOTAL_HANDLINGFEE_DESCRIPTIONS', 'none', 'Example: none,monitors,notebooks', '6', '4', now())");
-        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Handling Fees', 'MODULE_ORDER_TOTAL_HANDLINGFEE_FEES', '0', 'Retain same order as above. Example: 0,12,5', '6', '5', now())");
-        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Include Shipping', 'MODULE_ORDER_TOTAL_HANDLINGFEE_INCLUDE_SHIPPING', 'fedexexpress', 'Restrict shipping methods to (list code names separated by commas):', '6', '6', now())");
+        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Handling Fee Groups', 'MODULE_ORDER_TOTAL_HANDLINGFEE_DESCRIPTIONS', '0,+1,+2,+3', 'Example: none,monitors,notebooks', '6', '4', now())");
+        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Handling Fees', 'MODULE_ORDER_TOTAL_HANDLINGFEE_FEES', '0,1,2,3', 'Retain same order as above. Example: 0,12,5', '6', '5', now())");
+        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Include Shipping', 'MODULE_ORDER_TOTAL_HANDLINGFEE_INCLUDE_SHIPPING', 'aupost', 'Restrict shipping methods to (list code names separated by commas):', '6', '6', now())");
         $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Exclude Shipping', 'MODULE_ORDER_TOTAL_HANDLINGFEE_EXCLUDE_SHIPPING', 'storepickup', 'Include all shipping methods except (list code names separated by commas):', '6', '7', now())");
         $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, set_function, date_added) values ('Attach Handling Fee On Orders Made', 'MODULE_ORDER_TOTAL_HANDLINGFEE_DESTINATION', 'all', 'Attach handling fee for orders sent to the set destination.', '6', '8', 'zen_cfg_select_option(array(\'provincial\', \'national\', \'international\', \'all\'), ', now())");
         $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, set_function, date_added) values ('Calculation Method', 'MODULE_ORDER_TOTAL_HANDLINGFEE_CALCULATION', 'sum', 'Return handling fee as a sum of all products, or the highest handling fee?', '6', '10', 'zen_cfg_select_option(array(\'sum\', \'max\'), ', now())");
-        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, use_function, set_function, date_added) values ('Tax Class', 'MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS', '0', 'Use the following tax class on the handling fee.', '6', '11', 'zen_get_tax_class_title', 'zen_cfg_pull_down_tax_classes(', now())");
+        $db->Execute("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, use_function, set_function, date_added) values ('Tax Class', 'MODULE_ORDER_TOTAL_HANDLINGFEE_TAX_CLASS', '0', '(NOT USED) Use the following tax class on the handling fee.', '6', '11', 'zen_get_tax_class_title', 'zen_cfg_pull_down_tax_classes(', now())");
     }
 
     function remove() {
@@ -184,4 +184,3 @@ class ot_handlingfee {
         $db->Execute("delete from " . TABLE_CONFIGURATION . " where configuration_key in ('" . implode("', '", $this->keys()) . "')");
     }
 }
-?>
